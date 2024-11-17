@@ -37,21 +37,22 @@ if __name__ == '__main__':
         'Nuclear [MWh] Original resolutions',
         'Lignite [MWh] Original resolutions',
         'Hard coal [MWh] Original resolutions',
-        'Fossil gas [MWh] Original resolutions', 'Other renewable [MWh] Original resolutions','Hydro pumped storage [MWh] Original resolutions','Other conventional [MWh] Original resolutions']
+        'Fossil gas [MWh] Original resolutions', 'Other renewable [MWh] Original resolutions','Hydro pumped storage [MWh] Original resolutions','Other conventional [MWh] Original resolutions', 'time']
 
 
 
-    every_nth_datapoint = 100
-    colorby = "hour" #"quarter" "year" "hour"
+    every_nth_datapoint = 1
+    colorby = "year" #"quarter" "year" "hour"
 
 
     generation_data['year'] = consumption_data['Start date'].dt.year[::every_nth_datapoint]
     generation_data['quarter'] = consumption_data['Start date'].dt.quarter[::every_nth_datapoint]
+    generation_data['month'] = consumption_data['Start date'].dt.month[::every_nth_datapoint]
     generation_data['hour'] = consumption_data['Start date'].dt.hour[::every_nth_datapoint]
-    for column in columns_to_convert:
+    for column in columns_to_convert[:-1]:
         generation_data[column] = pd.to_numeric(generation_data[column].str.replace(',', '', regex=False),errors='coerce')
         generation_data[column] = generation_data[column].iloc[::every_nth_datapoint]
-    # Fill NaN values with the mean
+    generation_data['time'] = generation_data[colorby]
     generation_data[columns_to_convert] = generation_data[columns_to_convert].fillna(0)#type of data filling
 
 
@@ -63,8 +64,7 @@ if __name__ == '__main__':
     # 3D Visualization
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
-    # Use color mapping based on the quarter and set marker size
-    scatter = ax.scatter(pca_df['PC1'], pca_df['PC2'], pca_df['PC3'],c=generation_data[colorby], cmap='viridis', s=10)
+    scatter = ax.scatter(pca_df['PC1'], pca_df['PC2'], pca_df['PC3'],c=generation_data[colorby], cmap='viridis', s=0.2)
     ax.set_xlabel('Principal Component 1')
     ax.set_ylabel('Principal Component 2')
     ax.set_zlabel('Principal Component 3')
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     principal_components = pca.fit_transform(StandardScaler().fit_transform(generation_data[columns_to_convert]))
     pca_df = pd.DataFrame(data=principal_components, columns=['PC1', 'PC2'])
     plt.figure(figsize=(10, 8))
-    scatter = plt.scatter(pca_df['PC1'], pca_df['PC2'],c=generation_data[colorby], cmap='viridis', s=10)
+    scatter = plt.scatter(pca_df['PC1'], pca_df['PC2'],c=generation_data[colorby], cmap='viridis', s=0.1)
     plt.xlabel('Principal Component 1')
     plt.ylabel('Principal Component 2')
     cbar = plt.colorbar(scatter)
