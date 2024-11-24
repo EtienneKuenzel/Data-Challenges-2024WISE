@@ -80,61 +80,68 @@ def plot_heatmap_time_of_day_to_month(df, title, hour_column='hour', month_colum
     plt.title(title)
     plt.show()
 
-def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis', frac=0.1, drop_colorby=False, pointsize=1):
+def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis', frac=0.1, drop_colorby=False, pointsize=1.0):
     """
     Parameters:
-    - generation_data (pd.DataFrame): DataFrame containing the data to be reduced.
-    - colorby (str): 'year', 'month', 'hour'
-    - method (str): 'PCA', 'UMAP', 'PaCMAP', 'TriMap', 't-SNE'
-    - cmap (str): 'viridis', 'twilight' for looping colorby variable like months, hours
-    - frac (float): fraction of data to sample for visualization with 0.1 all plots taken around or under 1min to render
-    - drop_colorby: True to drop column by which datapoints are colored
+    - data (pd.DataFrame): DataFrame containing the data to be reduced.
+    - colorby (str): Column to color data points by (e.g., 'year', 'month', 'hour').
+    - method (str): Dimensionality reduction method ('PCA2D', 'PCA3D', 'UMAP', 'PaCMAP', 'TriMap', 't-SNE').
+    - cmap (str): Colormap to use for visualizing colorby variable.
+    - frac (float): Fraction of data to sample for visualization.
+    - drop_colorby (bool): Whether to drop 'year', 'month', 'hour' columns before scaling.
+    - pointsize (int): Size of scatter plot points.
     """
     # Sample the data
+
     data = data.sample(frac=frac, random_state=42)
     scaled_data = StandardScaler().fit_transform(data)
-    if drop_colorby: scaled_data = StandardScaler().fit_transform(data.drop(columns=[colorby]))
-
+    if drop_colorby:
+        scaled_data = StandardScaler().fit_transform(data.drop(columns=["year", "month", "hour"]))
     # Initialize the plot
-    plt.figure(figsize=(10, 8))
-
-    # PCA
     if method == 'PCA2D':
+        plt.figure(figsize=(10, 8))
         pca = PCA(n_components=2)
         components = pca.fit_transform(scaled_data)
         component_df = pd.DataFrame(data=components, columns=['PC1', 'PC2'])
-        plt.scatter(component_df['PC1'], component_df['PC2'], c=data[colorby], cmap=cmap, s=pointsize)
+        sc = plt.scatter(component_df['PC1'], component_df['PC2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
         plt.title('2D PCA Visualization')
-    if method == 'PCA3D':
+
+    elif method == 'PCA3D':
         pca = PCA(n_components=3)
         components = pca.fit_transform(scaled_data)
         component_df = pd.DataFrame(data=components, columns=['PC1', 'PC2', 'PC3'])
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(component_df['PC1'], component_df['PC2'], component_df['PC3'], c=generation_data[colorby],cmap=cmap, s=pointsize)
+        sc = ax.scatter(
+            component_df['PC1'],
+            component_df['PC2'],
+            component_df['PC3'],
+            c=data[colorby],
+            cmap=cmap,
+            s=pointsize
+        )
         ax.set_xlabel('Principal Component 1')
         ax.set_ylabel('Principal Component 2')
         ax.set_zlabel('Principal Component 3')
         plt.title('3D PCA Visualization')
 
-    # UMAP
     elif method == 'UMAP':
-        umap_model = umap.UMAP(n_components=2, n_neighbors=15, min_dist=0.3, n_epochs=50, metric='euclidean', low_memory=True, random_state=42)
+        plt.figure(figsize=(10, 8))
+        umap_model = umap.UMAP(n_components=2, n_neighbors=15, min_dist=0.3, random_state=42)
         umap_components = umap_model.fit_transform(scaled_data)
         umap_df = pd.DataFrame(data=umap_components, columns=['UMAP1', 'UMAP2'])
-        plt.scatter(umap_df['UMAP1'], umap_df['UMAP2'], c=data[colorby], cmap=cmap, s=10)
+        sc = plt.scatter(umap_df['UMAP1'], umap_df['UMAP2'], c=data[colorby], cmap=cmap, s=10)
         plt.xlabel('UMAP Component 1')
         plt.ylabel('UMAP Component 2')
         plt.title('2D UMAP Visualization')
-
     # PaCMAP
     elif method == 'PaCMAP':
         pacmap_model = pacmap.PaCMAP(n_components=2, n_neighbors=10, MN_ratio=0.5, FP_ratio=2.0, random_state=42)
         pacmap_components = pacmap_model.fit_transform(scaled_data)
         pacmap_df = pd.DataFrame(data=pacmap_components, columns=['PaCMAP1', 'PaCMAP2'])
-        plt.scatter(pacmap_df['PaCMAP1'], pacmap_df['PaCMAP2'], c=data[colorby], cmap=cmap, s=pointsize)
+        sc = plt.scatter(pacmap_df['PaCMAP1'], pacmap_df['PaCMAP2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('PaCMAP Component 1')
         plt.ylabel('PaCMAP Component 2')
         plt.title('2D PaCMAP Visualization')
@@ -144,7 +151,7 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
         trimap_model = trimap.TRIMAP(n_inliers=10, n_outliers=5, n_random=5, n_dims=2)
         trimap_components = trimap_model.fit_transform(scaled_data)
         trimap_df = pd.DataFrame(data=trimap_components, columns=['TriMap1', 'TriMap2'])
-        plt.scatter(trimap_df['TriMap1'], trimap_df['TriMap2'], c=data[colorby], cmap=cmap, s=pointsize)
+        sc = plt.scatter(trimap_df['TriMap1'], trimap_df['TriMap2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('TriMap Component 1')
         plt.ylabel('TriMap Component 2')
         plt.title('2D TriMap Visualization')
@@ -154,23 +161,26 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
         tsne_model = TSNE(n_components=2, perplexity=30, n_iter=1000, learning_rate=200, random_state=42)
         tsne_components = tsne_model.fit_transform(scaled_data)
         tsne_df = pd.DataFrame(data=tsne_components, columns=['t-SNE1', 't-SNE2'])
-        plt.scatter(tsne_df['t-SNE1'], tsne_df['t-SNE2'], c=data[colorby], cmap=cmap, s=pointsize)
+        sc = plt.scatter(tsne_df['t-SNE1'], tsne_df['t-SNE2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('t-SNE Component 1')
         plt.ylabel('t-SNE Component 2')
         plt.title('2D t-SNE Visualization')
 
-    # Show colorbar
-    cbar = plt.colorbar()
+    # Add other methods as needed...
+
+    # Add the colorbar linked to the scatter plot
+    cbar = plt.colorbar(sc)
     cbar.set_label(colorby)
 
     # Show the plot
     plt.show()
 
-
 if __name__ == '__main__':
 
     generation_data, price_data, all_data = preprocess_energy_data('smard15-24.csv')
-    plot_dimensionality_reduction(all_data, 'month', method='TriMap', cmap='twilight', frac=0.1, drop_colorby=False, pointsize=1)
+    for x in ["year", "month","hour"]:
+        for y in ["PCA2D", "PCA3D", "UMAP", "PaCMAP", "TriMap", "t-SNE"]:
+            plot_dimensionality_reduction(all_data, x, method=y, cmap='twilight', frac=0.1, drop_colorby=True, pointsize=1)
 
     #die plots müssen nicht adapted werden
     plot_correlation_matrix_all(generation_data, 'Correlation Matrix of Energy Generation')
