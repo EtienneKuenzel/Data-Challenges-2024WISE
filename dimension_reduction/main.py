@@ -3,18 +3,13 @@ import seaborn as sns
 import pacmap
 import trimap
 from sklearn.manifold import TSNE
-import pandas as pd
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import silhouette_score
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans, DBSCAN, OPTICS
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+import numpy as np
+from sklearn.cluster import KMeans, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering,AffinityPropagation, MeanShift, SpectralClustering, Birch
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
-import numpy as np
-
 def preprocess_energy_data(file_path='smard15-24.csv', frac=0.1):
     #file-path'smard18-24.csv'
     df = pd.read_csv(file_path)
@@ -83,14 +78,14 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
 
     scaled_data = StandardScaler().fit_transform(data)
     if drop_colorby:
-        scaled_data = StandardScaler().fit_transform(data.drop(columns=["year", "month", "hour", "Cluster"]))
+        scaled_data = StandardScaler().fit_transform(data.drop(columns=["Cluster"])) #"year", "month", "hour"
     # Initialize the plot
     if method == 'PCA2D':
         plt.figure(figsize=(10, 8))
         pca = PCA(n_components=2)
         components = pca.fit_transform(scaled_data)
-        component_df = pd.DataFrame(data=components, columns=['PC1', 'PC2'])
-        sc = plt.scatter(component_df['PC1'], component_df['PC2'], c=data[colorby], cmap=cmap, s=pointsize)
+        df = pd.DataFrame(data=components, columns=['PC1', 'PC2'])
+        sc = plt.scatter(df['PC1'], df['PC2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('Principal Component 1')
         plt.ylabel('Principal Component 2')
         plt.title('2D PCA Visualization')
@@ -98,13 +93,13 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
     elif method == 'PCA3D':
         pca = PCA(n_components=3)
         components = pca.fit_transform(scaled_data)
-        component_df = pd.DataFrame(data=components, columns=['PC1', 'PC2', 'PC3'])
+        df = pd.DataFrame(data=components, columns=['PC1', 'PC2', 'PC3'])
         fig = plt.figure(figsize=(10, 10))
         ax = fig.add_subplot(111, projection='3d')
         sc = ax.scatter(
-            component_df['PC1'],
-            component_df['PC2'],
-            component_df['PC3'],
+            df['PC1'],
+            df['PC2'],
+            df['PC3'],
             c=data[colorby],
             cmap=cmap,
             s=pointsize
@@ -118,8 +113,8 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
         plt.figure(figsize=(10, 8))
         umap_model = umap.UMAP(n_components=2, n_neighbors=15, min_dist=0.3, random_state=42)
         umap_components = umap_model.fit_transform(scaled_data)
-        umap_df = pd.DataFrame(data=umap_components, columns=['UMAP1', 'UMAP2'])
-        sc = plt.scatter(umap_df['UMAP1'], umap_df['UMAP2'], c=data[colorby], cmap=cmap, s=pointsize)
+        df = pd.DataFrame(data=umap_components, columns=['UMAP1', 'UMAP2'])
+        sc = plt.scatter(df['UMAP1'], df['UMAP2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('UMAP Component 1')
         plt.ylabel('UMAP Component 2')
         plt.title('2D UMAP Visualization')
@@ -127,8 +122,8 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
     elif method == 'PaCMAP':
         pacmap_model = pacmap.PaCMAP(n_components=2, n_neighbors=10, MN_ratio=0.5, FP_ratio=2.0, random_state=42)
         pacmap_components = pacmap_model.fit_transform(scaled_data)
-        pacmap_df = pd.DataFrame(data=pacmap_components, columns=['PaCMAP1', 'PaCMAP2'])
-        sc = plt.scatter(pacmap_df['PaCMAP1'], pacmap_df['PaCMAP2'], c=data[colorby], cmap=cmap, s=pointsize)
+        df = pd.DataFrame(data=pacmap_components, columns=['PaCMAP1', 'PaCMAP2'])
+        sc = plt.scatter(df['PaCMAP1'], df['PaCMAP2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('PaCMAP Component 1')
         plt.ylabel('PaCMAP Component 2')
         plt.title('2D PaCMAP Visualization')
@@ -137,8 +132,8 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
     elif method == 'TriMap':
         trimap_model = trimap.TRIMAP(n_inliers=10, n_outliers=5, n_random=5, n_dims=2)
         trimap_components = trimap_model.fit_transform(scaled_data)
-        trimap_df = pd.DataFrame(data=trimap_components, columns=['TriMap1', 'TriMap2'])
-        sc = plt.scatter(trimap_df['TriMap1'], trimap_df['TriMap2'], c=data[colorby], cmap=cmap, s=pointsize)
+        df = pd.DataFrame(data=trimap_components, columns=['TriMap1', 'TriMap2'])
+        sc = plt.scatter(df['TriMap1'], df['TriMap2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('TriMap Component 1')
         plt.ylabel('TriMap Component 2')
         plt.title('2D TriMap Visualization')
@@ -147,8 +142,8 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
     elif method == 't-SNE':
         tsne_model = TSNE(n_components=2, perplexity=30, n_iter=1000, learning_rate=200, random_state=42)
         tsne_components = tsne_model.fit_transform(scaled_data)
-        tsne_df = pd.DataFrame(data=tsne_components, columns=['t-SNE1', 't-SNE2'])
-        sc = plt.scatter(tsne_df['t-SNE1'], tsne_df['t-SNE2'], c=data[colorby], cmap=cmap, s=pointsize)
+        df = pd.DataFrame(data=tsne_components, columns=['t-SNE1', 't-SNE2'])
+        sc = plt.scatter(df['t-SNE1'], df['t-SNE2'], c=data[colorby], cmap=cmap, s=pointsize)
         plt.xlabel('t-SNE Component 1')
         plt.ylabel('t-SNE Component 2')
         plt.title('2D t-SNE Visualization')
@@ -158,9 +153,8 @@ def plot_dimensionality_reduction(data, colorby, method='PCA2D', cmap='viridis',
     # Add the colorbar linked to the scatter plot
     cbar = plt.colorbar(sc)
     cbar.set_label(colorby)
-
-    # Show the plot
     plt.show()
+    return df
 def plot_correlation_matrix_all(df, title, figsize=(14, 12), vmin=-0.5, vmax=1):
     """
     Parameters:
@@ -175,9 +169,7 @@ def plot_correlation_matrix_all(df, title, figsize=(14, 12), vmin=-0.5, vmax=1):
     sns.heatmap(corr_matrix_all, annot=True, cmap='YlOrRd', fmt='.2f', linewidths=0.5, vmin=vmin, vmax=vmax,cbar_kws={"label": "Correlation"})
     plt.title(title)
     plt.show()
-from sklearn.cluster import KMeans, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering,AffinityPropagation, MeanShift, SpectralClustering
-from sklearn.preprocessing import StandardScaler
-import pandas as pd
+
 
 def add_clusters_to_data(data, method='kmeans', n_clusters=4, eps=0.2, min_samples=2, max_eps=10.0):
     """
@@ -213,6 +205,10 @@ def add_clusters_to_data(data, method='kmeans', n_clusters=4, eps=0.2, min_sampl
         model = OPTICS(min_samples=30, max_eps=0.3, xi=0.05, min_cluster_size=50)
     elif method == 'spectral':
         model = SpectralClustering(n_clusters=n_clusters)
+    elif method == 'affinity':
+        model = AffinityPropagation()
+    elif method == 'birch':
+        model = Birch(n_clusters=n_clusters)
     else:
         raise ValueError(f"Unsupported clustering method: {method}")
 
@@ -243,20 +239,43 @@ def add_clusters_to_data(data, method='kmeans', n_clusters=4, eps=0.2, min_sampl
     for metric, value in metrics.items():
         print(f"{metric}: {value}")
     return data_with_clusters
+def plot_3d_to_2d(data, colormap='viridis', title='', color_label='Clusters'):
+    """
+    Plots 3D data in 2D, using the third column to color the points.
 
+    Parameters:
+        data (np.ndarray): 3D data as a NumPy array of shape (n, 3),
+                           where columns represent x, y, and z respectively.
+        colormap (str): Matplotlib colormap to use for coloring the points.
+        title (str): Title of the plot.
+        color_label (str): Label for the colorbar.
+    """
+    if data.shape[1] != 3:
+        raise ValueError("Input data must have exactly three columns (x, y, z).")
+
+    x = data["PaCMAP1"]
+    y = data["PaCMAP2"]
+    z = data["Cluster"]
+
+    plt.figure(figsize=(8, 6))
+    scatter = plt.scatter(x, y, c=z, cmap=colormap, s=2)
+    plt.colorbar(scatter, label=color_label)
+    plt.title(title)
+    plt.xlabel("X-axis")
+    plt.ylabel("Y-axis")
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == '__main__':
     generation_data, price_data, all_data = preprocess_energy_data('smard15-24.csv',frac=0.1)
-    clustered_data = add_clusters_to_data(all_data, method='spectral')
-    plot_dimensionality_reduction(clustered_data, "Cluster", method="UMAP", cmap='viridis', drop_colorby=True,pointsize=1)
-    plot_dimensionality_reduction(clustered_data, "Cluster", method="PaCMAP", cmap='viridis', drop_colorby=True,pointsize=1)
-    plot_dimensionality_reduction(clustered_data, "Cluster", method="TriMap", cmap='viridis', drop_colorby=True,pointsize=1)
-    plot_dimensionality_reduction(clustered_data, "Cluster", method="t-SNE", cmap='viridis', drop_colorby=True,pointsize=1)
+    a = plot_dimensionality_reduction(all_data, "year", method="PaCMAP", cmap='viridis', drop_colorby=False,pointsize=2)
 
 
+    clustered_data = add_clusters_to_data(a, method='birch', n_clusters=6)
+    plot_3d_to_2d(clustered_data)
     #Past plots
-    plot_dimensionality_reduction(all_data, "year", method="PCA2D", cmap='twilight', drop_colorby=True,pointsize=1)
-    plot_correlation_matrix_all(generation_data, 'Correlation Matrix of Energy Generation')
-    plot_correlation_matrix_all(price_data, 'Correlation Matrix of Energy Prices')
-    plot_heatmap_time_of_day_to_month(all_data, 'Heatmap of Time-of-Day to Month')
+    #plot_dimensionality_reduction(all_data, "year", method="PCA2D", cmap='twilight', drop_colorby=True,pointsize=1)
+    #plot_correlation_matrix_all(generation_data, 'Correlation Matrix of Energy Generation')
+    #plot_correlation_matrix_all(price_data, 'Correlation Matrix of Energy Prices')
+    #plot_heatmap_time_of_day_to_month(all_data, 'Heatmap of Time-of-Day to Month')
