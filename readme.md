@@ -12,7 +12,7 @@ This repository contains the code and resources for the Data Challenge Course 24
   <img src="images/Clustering/all data/kmeans-10/PacMap.png" width="49%" />
 </p>
 
-### Dimension Reduction TriMap###
+### Dimension Reduction TriMap ###
 <p float="left">
   <img src="images/TriMap/TriMap-year.png" width="49%" />
   <img src="images/TriMap/TriMap-month.png" width="49%" />
