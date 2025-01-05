@@ -1,5 +1,5 @@
 
-# Data-Challenges-2024WISE#
+# Data-Challenges-2024WISE #
 This repository contains the code and resources for the Data Challenge Course 24/25
 
 - Code for [Clustering and Dimension Reduction](dimension_reduction/main.py)
