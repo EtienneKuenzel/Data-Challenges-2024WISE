@@ -223,14 +223,14 @@ def add_clusters_to_data(data, method='kmeans', n_clusters=4, eps=0.2, min_sampl
 
     # Evaluation metrics
     metrics = {}
-    metrics['Davies-Bouldin'] = davies_bouldin_score(scaled_data, cluster_labels)
+    #metrics['Davies-Bouldin'] = davies_bouldin_score(scaled_data, cluster_labels)
 
-    metrics['Calinski-Harabasz'] = calinski_harabasz_score(scaled_data, cluster_labels)
-    metrics['Hartigan'] = model.inertia_ if hasattr(model, 'inertia_') else np.nan
+    #metrics['Calinski-Harabasz'] = calinski_harabasz_score(scaled_data, cluster_labels)
+    #metrics['Hartigan'] = model.inertia_ if hasattr(model, 'inertia_') else np.nan
     if len(set(cluster_labels)) > 1:
         centers = model.cluster_centers_ if hasattr(model, 'cluster_centers_') else np.array([scaled_data[cluster_labels == label].mean(axis=0) for label in set(cluster_labels)])
         nearest_neighbor = np.min([np.linalg.norm(center - other_center) for i, center in enumerate(centers) for j, other_center in enumerate(centers) if i != j])
-        metrics['VCN'] = nearest_neighbor
+        #metrics['VCN'] = nearest_neighbor
         metrics['Silhouette'] = silhouette_score(scaled_data, cluster_labels)
 
 
@@ -268,7 +268,7 @@ def plot_3d_to_2d(data, colormap='viridis', title='', color_label='Clusters'):
 
 
 if __name__ == '__main__':
-    generation_data, price_data, all_data = preprocess_energy_data('smard15-24.csv',frac=0.1)
+    generation_data, price_data, all_data = preprocess_energy_data('smard18-24.csv',frac=0.1)
     a = plot_dimensionality_reduction(all_data, "year", method="PaCMAP", cmap='viridis', drop_colorby=False,pointsize=2)
 
 
