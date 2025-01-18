@@ -6,20 +6,19 @@ from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
-import numpy as np
 from sklearn.cluster import KMeans, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering,AffinityPropagation, MeanShift, SpectralClustering, Birch
-from sklearn.preprocessing import StandardScaler
-import pandas as pd
-import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.metrics import classification_report
 from sklearn.svm import SVC
-from sklearn.metrics import classification_report, roc_auc_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from sklearn.preprocessing import LabelEncoder
-
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 
 def preprocess_energy_data(file_path='smard15-24.csv', frac=0.1):
     #file-path'smard18-24.csv'
@@ -322,6 +321,20 @@ def add_change_bins_to_csv(input_csv, output_csv, bins, labels):
 
 
 if __name__ == '__main__':
+    # Import necessary libraries
+    import pandas as pd
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    from sklearn.preprocessing import LabelEncoder, StandardScaler
+    from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+    from sklearn.svm import SVC
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.neighbors import KNeighborsClassifier
+    from imblearn.over_sampling import SMOTE
+    from imblearn.under_sampling import RandomUnderSampler
+    from xgboost import XGBClassifier
+    from lightgbm import LGBMClassifier
 
     # Step 1: Load the dataset
     df = pd.read_csv("smard18-24+bin.csv")  # Replace with your file path
@@ -332,54 +345,61 @@ if __name__ == '__main__':
     df = df.sample(frac=0.1, random_state=42)
     df[target] = label_encoder.fit_transform(df[target])  # Encode strings to integers
 
-    # Optional: Print the mapping
-    print("Label Mapping:", dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_))))
-
     # Replace NaN in numerical columns with the column mean
     numerical_features = df.select_dtypes(include=[np.number])
     df[numerical_features.columns] = numerical_features.fillna(numerical_features.mean())
     df['Start date'] = df['Start date'].fillna('Unknown')  # Fill with a placeholder value
     df['End date'] = df['End date'].fillna('Unknown')
     df['DE/AT/LU [€/MWh] Calculated resolutions'] = df['DE/AT/LU [€/MWh] Calculated resolutions'].fillna(0)
+
     # Step 4: Split into features and target
     features = df.drop(columns=["Start date", "End date", target])  # Adjust columns as needed
     X = features.select_dtypes(include=[np.number])  # Select only numerical columns
     y = df[target]
 
     # Step 5: Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=42, stratify=y)
 
     # Scale the features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # Step 6: Train SVM classifier
-    svm = SVC(kernel="rbf", probability=True, random_state=42)
-    svm.fit(X_train_scaled, y_train)
-    y_pred = svm.predict(X_test_scaled)
-    y_proba = svm.predict_proba(X_test_scaled)[:, 1]
+    # Function to evaluate a model and calculate metrics
+    def evaluate_model(model, X_train, y_train, X_test, y_test, description):
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
+        accuracy = accuracy_score(y_test, y_pred)
+        print(f"{description}:")
+        print(f"  Accuracy: {accuracy:.4f}")
+        print(f"  Precision: {precision:.4f}")
+        print(f"  Recall: {recall:.4f}")
+        print(f"  F1 Score: {f1:.4f}")
 
-    # Evaluate the model
+    # Step 6: Train and evaluate multiple classifiers
+    classifiers = {
+        "Support Vector Machine": SVC(kernel="rbf", probability=True, random_state=42),
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "K-Nearest Neighbors": KNeighborsClassifier(),
+    }
+
     print("Original Dataset:")
-    print(classification_report(y_test, y_pred))
-    # Step 7: Address data imbalance
-    # a. Undersampling
-    rus = RandomUnderSampler(random_state=42)
-    X_res, y_res = rus.fit_resample(X_train_scaled, y_train)
-    svm.fit(X_res, y_res)
-    y_pred_rus = svm.predict(X_test_scaled)
-    y_proba_rus = svm.predict_proba(X_test_scaled)[:, 1]
-    print("After Undersampling:")
-    print(classification_report(y_test, y_pred_rus))
-    # b. Oversampling
-    smote = SMOTE(random_state=42)
-    X_res, y_res = smote.fit_resample(X_train_scaled, y_train)
-    svm.fit(X_res, y_res)
-    y_pred_smote = svm.predict(X_test_scaled)
-    y_proba_smote = svm.predict_proba(X_test_scaled)[:, 1]
-    print("After Oversampling:")
-    print(classification_report(y_test, y_pred_smote))
+    for name, model in classifiers.items():
+        evaluate_model(model, X_train_scaled, y_train, X_test_scaled, y_test, name)
+
+    # Handle imbalanced data (undersampling and oversampling)
+    samplers = {
+        "Undersampling": RandomUnderSampler(random_state=42),
+        "Oversampling (SMOTE)": SMOTE(random_state=42),
+    }
+
+    for sampler_name, sampler in samplers.items():
+        print(f"\nAfter {sampler_name}:")
+        X_res, y_res = sampler.fit_resample(X_train_scaled, y_train)
+        for name, model in classifiers.items():
+            evaluate_model(model, X_res, y_res, X_test_scaled, y_test, f"{sampler_name} - {name}")
+
 
     # Example usage:
     # Define the bins and labels for classification
