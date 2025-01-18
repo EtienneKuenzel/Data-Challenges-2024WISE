@@ -10,6 +10,17 @@ import numpy as np
 from sklearn.cluster import KMeans, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering,AffinityPropagation, MeanShift, SpectralClustering, Birch
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.preprocessing import StandardScaler
+from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
+from sklearn.preprocessing import LabelEncoder
+
+
 def preprocess_energy_data(file_path='smard15-24.csv', frac=0.1):
     #file-path'smard18-24.csv'
     df = pd.read_csv(file_path)
@@ -265,15 +276,123 @@ def plot_3d_to_2d(data, colormap='viridis', title='', color_label='Clusters'):
     plt.ylabel("Y-axis")
     plt.tight_layout()
     plt.show()
+import pandas as pd
+
+def add_change_bins_to_csv(input_csv, output_csv, bins, labels):
+    """
+    Adds a new column to the CSV file indicating the change in
+    'Total (grid load) [MWh] Original resolutions' relative to the previous row,
+    classified into bins. Prints the percentage of data falling into each bin.
+
+    Args:
+        input_csv (str): Path to the input CSV file.
+        output_csv (str): Path to save the modified CSV file.
+        bins (list): List of bin edges for classification.
+        labels (list): Labels for the bins.
+
+    Returns:
+        None
+    """
+    # Load the CSV file into a DataFrame
+    df = pd.read_csv(input_csv)
+    df = df.replace({',': ''}, regex=True)
+    df = df.apply(pd.to_numeric, errors='coerce')
+    # Ensure the column exists in the DataFrame
+    column_name = "Total (grid load) [MWh] Original resolutions"
+    if column_name not in df.columns:
+        raise ValueError(f"Column '{column_name}' not found in the CSV file.")
+
+    # Calculate the change compared to the previous row
+    df['Grid Load Change'] = df[column_name].diff()
+
+    # Classify the changes into bins
+    df['Grid Load Change Bin'] = pd.cut(df['Grid Load Change'], bins=bins, labels=labels, include_lowest=True)
+
+    # Calculate and print the percentage of data in each bin
+    bin_counts = df['Grid Load Change Bin'].value_counts(normalize=True) * 100
+    print("Percentage of data in each bin:")
+    for label, percentage in bin_counts.items():
+        print(f"{label}: {percentage:.2f}%")
+
+    # Save the modified DataFrame to a new CSV file
+    df.to_csv(output_csv, index=False)
+    print(f"Modified CSV saved to {output_csv}")
+
+
 
 
 if __name__ == '__main__':
-    generation_data, price_data, all_data = preprocess_energy_data('smard18-24.csv',frac=0.1)
-    a = plot_dimensionality_reduction(all_data, "year", method="PaCMAP", cmap='viridis', drop_colorby=False,pointsize=2)
+
+    # Step 1: Load the dataset
+    df = pd.read_csv("smard18-24+bin.csv")  # Replace with your file path
+    target = "Grid Load Change Bin"
+
+    # Step 2: Encode the target variable
+    label_encoder = LabelEncoder()
+    df = df.sample(frac=0.1, random_state=42)
+    df[target] = label_encoder.fit_transform(df[target])  # Encode strings to integers
+
+    # Optional: Print the mapping
+    print("Label Mapping:", dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_))))
+
+    # Replace NaN in numerical columns with the column mean
+    numerical_features = df.select_dtypes(include=[np.number])
+    df[numerical_features.columns] = numerical_features.fillna(numerical_features.mean())
+    df['Start date'] = df['Start date'].fillna('Unknown')  # Fill with a placeholder value
+    df['End date'] = df['End date'].fillna('Unknown')
+    df['DE/AT/LU [€/MWh] Calculated resolutions'] = df['DE/AT/LU [€/MWh] Calculated resolutions'].fillna(0)
+    # Step 4: Split into features and target
+    features = df.drop(columns=["Start date", "End date", target])  # Adjust columns as needed
+    X = features.select_dtypes(include=[np.number])  # Select only numerical columns
+    y = df[target]
+
+    # Step 5: Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+    # Scale the features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    # Step 6: Train SVM classifier
+    svm = SVC(kernel="rbf", probability=True, random_state=42)
+    svm.fit(X_train_scaled, y_train)
+    y_pred = svm.predict(X_test_scaled)
+    y_proba = svm.predict_proba(X_test_scaled)[:, 1]
+
+    # Evaluate the model
+    print("Original Dataset:")
+    print(classification_report(y_test, y_pred))
+    # Step 7: Address data imbalance
+    # a. Undersampling
+    rus = RandomUnderSampler(random_state=42)
+    X_res, y_res = rus.fit_resample(X_train_scaled, y_train)
+    svm.fit(X_res, y_res)
+    y_pred_rus = svm.predict(X_test_scaled)
+    y_proba_rus = svm.predict_proba(X_test_scaled)[:, 1]
+    print("After Undersampling:")
+    print(classification_report(y_test, y_pred_rus))
+    # b. Oversampling
+    smote = SMOTE(random_state=42)
+    X_res, y_res = smote.fit_resample(X_train_scaled, y_train)
+    svm.fit(X_res, y_res)
+    y_pred_smote = svm.predict(X_test_scaled)
+    y_proba_smote = svm.predict_proba(X_test_scaled)[:, 1]
+    print("After Oversampling:")
+    print(classification_report(y_test, y_pred_smote))
+
+    # Example usage:
+    # Define the bins and labels for classification
+    #example_bins = [-float('inf'), -100, -10, 10, 100, float('inf')]
+    #example_labels = ['Large Decrease', 'Small Decrease', 'No Change', 'Small Increase', 'Large Increase']
+
+    #add_change_bins_to_csv('smard18-24.csv', 'output.csv', example_bins, example_labels)
+    #generation_data, price_data, all_data = preprocess_energy_data('smard18-24.csv',frac=0.1)
+    #a = plot_dimensionality_reduction(all_data, "year", method="PaCMAP", cmap='viridis', drop_colorby=False,pointsize=2)
 
 
-    clustered_data = add_clusters_to_data(a, method='birch', n_clusters=6)
-    plot_3d_to_2d(clustered_data)
+    #clustered_data = add_clusters_to_data(a, method='birch', n_clusters=6)
+    #plot_3d_to_2d(clustered_data)
     #Past plots
     #plot_dimensionality_reduction(all_data, "year", method="PCA2D", cmap='twilight', drop_colorby=True,pointsize=1)
     #plot_correlation_matrix_all(generation_data, 'Correlation Matrix of Energy Generation')
