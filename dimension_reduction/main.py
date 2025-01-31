@@ -3,22 +3,223 @@ import seaborn as sns
 import pacmap
 import trimap
 from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 from sklearn.cluster import KMeans, DBSCAN, OPTICS, HDBSCAN, AgglomerativeClustering,AffinityPropagation, MeanShift, SpectralClustering, Birch
-import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.metrics import classification_report
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier
+from scipy.stats import linregress
+from fastdtw import fastdtw
+from scipy.spatial.distance import euclidean
+from sklearn.linear_model import LinearRegression
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# Function to detrend series
+def detrend_series(x, y):
+    # Implement detrending here (e.g., linear detrending)
+    return y - np.polyval(np.polyfit(x.astype(int), y, 1), x.astype(int))
+
+
+# Function for piecewise approximation (linear regression)
+def piecewise_linear_approximation(x, y, segment_length):
+    """Divide data into segments and apply linear regression for each segment."""
+    segments_x = [x[i:i + segment_length] for i in range(0, len(x), segment_length)]
+    segments_y = [y[i:i + segment_length] for i in range(0, len(y), segment_length)]
+
+    linear_segments_x = []
+    linear_segments_y = []
+
+    for seg_x, seg_y in zip(segments_x, segments_y):
+        model = LinearRegression()
+        model.fit(seg_x.reshape(-1, 1), seg_y)
+        predicted_y = model.predict(seg_x.reshape(-1, 1))
+        linear_segments_x.append(seg_x)
+        linear_segments_y.append(predicted_y)
+
+    return linear_segments_x, linear_segments_y
+
+# Load data
+df1 = pd.read_csv("smard20.csv", delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+df2 = pd.read_csv("smard23.csv", delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+
+# Rename columns
+df1.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_1"}, inplace=True)
+df2.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_2"}, inplace=True)
+
+# Drop missing values
+df1 = df1.dropna(subset=["DE_Price_1"])
+df2 = df2.dropna(subset=["DE_Price_2"])
+
+# Adjust start date to the same reference year
+df1["Start date"] = df1["Start date"].apply(lambda x: x.replace(year=2000))
+df2["Start date"] = df2["Start date"].apply(lambda x: x.replace(year=2000))
+
+# Apply a moving average
+window_size = 24*4*7
+df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+df2["DE_Price_2"] = df2["DE_Price_2"].rolling(window=window_size, min_periods=1).mean()
+
+# Standardize the data
+"""df1["DE_Price_1"] = df1["DE_Price_1"] - df1["DE_Price_1"].mean()
+df2["DE_Price_2"] = df2["DE_Price_2"] - df2["DE_Price_2"].mean()
+
+df1["DE_Price_1"] = df1["DE_Price_1"]/df1["DE_Price_1"].std()
+df2["DE_Price_2"] = df2["DE_Price_2"]/df2["DE_Price_2"].std()
+
+# Detrend the data
+df1["DE_Price_1"] = detrend_series(df1["Start date"], df1["DE_Price_1"])
+df2["DE_Price_2"] = detrend_series(df2["Start date"], df2["DE_Price_2"])"""
+
+# Merge the data
+df_merged = df1.merge(df2, on="Start date", how="inner")
+
+# Convert dates to numeric values for linear regression
+dates_as_numeric = mdates.date2num(df_merged["Start date"])
+
+# Apply piecewise linear approximation
+segment_length = 500  # Choose an appropriate segment length
+linear_segments_x_1, linear_segments_y_1 = piecewise_linear_approximation(dates_as_numeric,
+                                                                          df_merged["DE_Price_1"].values,
+                                                                          segment_length)
+linear_segments_x_2, linear_segments_y_2 = piecewise_linear_approximation(dates_as_numeric,
+                                                                          df_merged["DE_Price_2"].values,
+                                                                          segment_length)
+
+# Plot original data and linear piecewise approximations
+plt.figure(figsize=(12, 6))
+#plt.plot(df1["Start date"], df1["DE_Price_1"], label="2020 Price of Electricity (€/MWh)", color="blue", linewidth=1)
+#plt.plot(df2["Start date"], df2["DE_Price_2"], label="2023 Price of Electricity (€/MWh)", color="red", linewidth=1)
+
+# Plot each piecewise linear segment
+for seg_x_1, seg_y_1, seg_x_2, seg_y_2 in zip(linear_segments_x_1, linear_segments_y_1, linear_segments_x_2,
+                                              linear_segments_y_2):
+    # Convert numeric dates back to datetime for proper plotting
+    seg_x_1_dates = mdates.num2date(seg_x_1)
+    seg_x_2_dates = mdates.num2date(seg_x_2)
+
+    # Plot the linear regression lines for each segment
+    plt.plot(seg_x_1_dates, seg_y_1, color="blue", alpha=1, linewidth=1)
+    plt.plot(seg_x_2_dates, seg_y_2, color="red", alpha=1, linewidth=1)
+
+# Formatting the plot
+plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%m"))  # Show only Month
+plt.xlabel("Time")
+plt.ylabel("Price (€/MWh)")
+plt.ylim(-200, 200)
+plt.title("Electricity Price in Germany (Piecewise Linear Approximation)")
+plt.legend()
+plt.grid(True)
+plt.xticks(rotation=45)
+plt.show()
+
+
+# Define a function for piecewise approximation
+def detrend_series(x, y):
+    # Implement detrending here (e.g., linear detrending)
+    return y - np.polyval(np.polyfit(x.astype(int), y, 1), x.astype(int))
+
+# Function for piecewise approximation
+def piecewise_approximation(data, segment_length):
+    """Divide data into segments and compute DTW on each segment."""
+    segments = [data[i:i + segment_length] for i in range(0, len(data), segment_length)]
+    distances = []
+    paths = []
+
+    for i in range(len(segments) - 1):
+        segment_1 = [(x,) for x in segments[i]]
+        segment_2 = [(x,) for x in segments[i + 1]]
+        distance, path = fastdtw(segment_1, segment_2, dist=euclidean)
+        distances.append(distance)
+        paths.append(path)
+
+    return distances, paths
+
+# Function to remove linear trend
+def detrend_series(dates, prices):
+    x = np.arange(len(dates))  # Convert dates to numerical indices
+    y = prices.values  # Convert prices to numpy array
+
+    # Fit linear regression
+    slope, intercept, _, _, _ = linregress(x, y)
+
+    # Compute trend line
+    trend = slope * x + intercept
+
+    # Remove trend from the data
+    detrended_prices = y - trend
+
+    return detrended_prices
+# Load dataset
+def time_series(file_path1 = "smard20.csv", file_path2 = "smard23.csv"):
+
+    df1 = pd.read_csv(file_path1, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+    df2 = pd.read_csv(file_path2, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+
+    # Rename columns
+    df1.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_1"}, inplace=True)
+    df2.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_2"}, inplace=True)
+
+    # Drop missing values
+    df1 = df1.dropna(subset=["DE_Price_1"])
+    df2 = df2.dropna(subset=["DE_Price_2"])
+
+    # Adjust start date to the same reference year
+    df1["Start date"] = df1["Start date"].apply(lambda x: x.replace(year=2000))
+    df2["Start date"] = df2["Start date"].apply(lambda x: x.replace(year=2000))
+    # Apply a moving average
+    window_size = 24*4*7
+    df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+    df2["DE_Price_2"] = df2["DE_Price_2"].rolling(window=window_size, min_periods=1).mean()
+
+    df1["DE_Price_1"] = df1["DE_Price_1"] - df1["DE_Price_1"].mean()
+    df2["DE_Price_2"] = df2["DE_Price_2"] - df2["DE_Price_2"].mean()
+
+    df1["DE_Price_1"] = df1["DE_Price_1"]/df1["DE_Price_1"].std()
+    df2["DE_Price_2"] = df2["DE_Price_2"]/df2["DE_Price_2"].std()
+
+    df1["DE_Price_1"] = detrend_series(df1["Start date"], df1["DE_Price_1"])
+    df2["DE_Price_2"] = detrend_series(df2["Start date"], df2["DE_Price_2"])
+    df_merged = df1.merge(df2, on="Start date", how="inner")
+    euclidean_distance = np.sqrt(np.sum((df_merged["DE_Price_1"] - df_merged["DE_Price_2"]) ** 2))
+    print(f"Euclidean Distance: {euclidean_distance}")
+    df_merged = df1.merge(df2, on="Start date", how="inner")
+    distance, path = fastdtw([(x,) for x in df_merged["DE_Price_1"].values], [(x,) for x in df_merged["DE_Price_2"].values], dist=euclidean)
+    print(f"DTW Distance: {distance}")
+    indices_1, indices_2 = zip(*path)
+    indices_1 = indices_1[::100]
+    indices_2 = indices_2[::100]
+
+
+    # Plot original and smoothed data
+    plt.figure(figsize=(12, 6))
+    plt.plot(df1["Start date"], df1["DE_Price_1"], label="2020 Price of Electricity (€/MWh)", color="blue", linewidth=1)
+    plt.plot(df2["Start date"], df2["DE_Price_2"], label="2023 Price of Electricity (€/MWh)", color="red", linewidth=1)
+    for i, j in zip(indices_1, indices_2):
+        plt.plot([df_merged["Start date"].iloc[i], df_merged["Start date"].iloc[j]],
+                 [df_merged["DE_Price_1"].iloc[i], df_merged["DE_Price_2"].iloc[j]],
+                 color="black", linestyle="--", linewidth=0.2)
+
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%m"))  # Show only Month
+
+    plt.xlabel("Time")
+    plt.ylabel("Price (€/MWh)")
+    plt.ylim(-200,200)
+    plt.title("Electricity Price in Germany")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.show()
+
+
 
 def preprocess_energy_data(file_path='smard15-24.csv', frac=0.1):
     #file-path'smard18-24.csv'
@@ -316,68 +517,46 @@ def add_change_bins_to_csv(input_csv, output_csv, bins, labels):
     # Save the modified DataFrame to a new CSV file
     df.to_csv(output_csv, index=False)
     print(f"Modified CSV saved to {output_csv}")
-
-
-
-
-if __name__ == '__main__':
-    # Import necessary libraries
-    import pandas as pd
-    import numpy as np
-    from sklearn.model_selection import train_test_split
-    from sklearn.preprocessing import LabelEncoder, StandardScaler
-    from sklearn.metrics import precision_recall_fscore_support, accuracy_score
-    from sklearn.svm import SVC
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.neighbors import KNeighborsClassifier
-    from imblearn.over_sampling import SMOTE
-    from imblearn.under_sampling import RandomUnderSampler
-    from xgboost import XGBClassifier
-    from lightgbm import LGBMClassifier
-
-    # Step 1: Load the dataset
-    df = pd.read_csv("smard18-24+bin.csv")  # Replace with your file path
-    target = "Grid Load Change Bin"
-
-    # Step 2: Encode the target variable
+def load_and_preprocess_data(file_path, target_column, sample_fraction=0.1, test_size=0.8, random_state=42):
+    df = pd.read_csv(file_path)
     label_encoder = LabelEncoder()
-    df = df.sample(frac=0.1, random_state=42)
-    df[target] = label_encoder.fit_transform(df[target])  # Encode strings to integers
+    df = df.sample(frac=sample_fraction, random_state=random_state)
+    df[target_column] = label_encoder.fit_transform(df[target_column])
 
-    # Replace NaN in numerical columns with the column mean
     numerical_features = df.select_dtypes(include=[np.number])
     df[numerical_features.columns] = numerical_features.fillna(numerical_features.mean())
-    df['Start date'] = df['Start date'].fillna('Unknown')  # Fill with a placeholder value
+    df['Start date'] = df['Start date'].fillna('Unknown')
     df['End date'] = df['End date'].fillna('Unknown')
     df['DE/AT/LU [€/MWh] Calculated resolutions'] = df['DE/AT/LU [€/MWh] Calculated resolutions'].fillna(0)
 
-    # Step 4: Split into features and target
-    features = df.drop(columns=["Start date", "End date", target])  # Adjust columns as needed
-    X = features.select_dtypes(include=[np.number])  # Select only numerical columns
-    y = df[target]
+    features = df.drop(columns=["Start date", "End date", target_column])
+    X = features.select_dtypes(include=[np.number])
+    y = df[target_column]
 
-    # Step 5: Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.8, random_state=42, stratify=y)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=test_size, random_state=random_state, stratify=y
+    )
 
-    # Scale the features
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # Function to evaluate a model and calculate metrics
-    def evaluate_model(model, X_train, y_train, X_test, y_test, description):
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
-        accuracy = accuracy_score(y_test, y_pred)
-        print(f"{description}:")
-        print(f"  Accuracy: {accuracy:.4f}")
-        print(f"  Precision: {precision:.4f}")
-        print(f"  Recall: {recall:.4f}")
-        print(f"  F1 Score: {f1:.4f}")
+    return X_train_scaled, X_test_scaled, y_train, y_test
 
-    # Step 6: Train and evaluate multiple classifiers
+
+def evaluate_model(model, X_train, y_train, X_test, y_test, description):
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average='weighted')
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"{description}:")
+    print(f"  Accuracy: {accuracy:.4f}")
+    print(f"  Precision: {precision:.4f}")
+    print(f"  Recall: {recall:.4f}")
+    print(f"  F1 Score: {f1:.4f}")
+
+
+def train_and_evaluate_models(X_train_scaled, X_test_scaled, y_train, y_test):
     classifiers = {
         "Support Vector Machine": SVC(kernel="rbf", probability=True, random_state=42),
         "Random Forest": RandomForestClassifier(random_state=42),
@@ -388,7 +567,6 @@ if __name__ == '__main__':
     for name, model in classifiers.items():
         evaluate_model(model, X_train_scaled, y_train, X_test_scaled, y_test, name)
 
-    # Handle imbalanced data (undersampling and oversampling)
     samplers = {
         "Undersampling": RandomUnderSampler(random_state=42),
         "Oversampling (SMOTE)": SMOTE(random_state=42),
@@ -400,6 +578,17 @@ if __name__ == '__main__':
         for name, model in classifiers.items():
             evaluate_model(model, X_res, y_res, X_test_scaled, y_test, f"{sampler_name} - {name}")
 
+
+
+
+
+if __name__ == '__main__':
+    pass
+    # Function Call
+    #file_path = "smard18-24+bin.csv"
+    #target_column = "Grid Load Change Bin"
+    #X_train_scaled, X_test_scaled, y_train, y_test = load_and_preprocess_data(file_path, target_column)
+    #train_and_evaluate_models(X_train_scaled, X_test_scaled, y_train, y_test)
 
     # Example usage:
     # Define the bins and labels for classification
