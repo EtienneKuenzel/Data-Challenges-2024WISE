@@ -14,21 +14,57 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
-from scipy.stats import linregress
 from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
-from sklearn.linear_model import LinearRegression
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from sklearn.linear_model import LinearRegression
+import numpy as np
+import pandas as pd
+# Forecasting using ARIMA
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from sklearn.linear_model import LinearRegression
+import numpy as np
+import pandas as pd
+from datetime import timedelta
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-# Function to detrend series
+
+def time_series_forcast(file_path1 = "smard20.csv"):
+    df1 = pd.read_csv(file_path1, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+    df1.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_1"}, inplace=True)
+    df1 = df1.dropna(subset=["DE_Price_1"])
+    window_size = 24 * 4 * 7
+    df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+
+    df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+
+    # Simple Forecast: Shifted past values as future predictions
+    forecast_horizon = 24 * 4*30  # Predict one day ahead
+    df1["Forecast"] = df1["DE_Price_1"].shift(forecast_horizon)
+
+    # Plot actual vs forecast
+    plt.figure(figsize=(12, 6))
+    plt.plot(df1["Start date"], df1["DE_Price_1"], label="Actual Price", color="blue", linewidth=1)
+    plt.plot(df1["Start date"], df1["Forecast"], label="Forecasted Price", color="red", linestyle="dashed", linewidth=1)
+
+    plt.xlabel("Time")
+    plt.ylabel("Price (€/MWh)")
+    plt.ylim(-200, 200)
+    plt.title("Electricity Price in Germany with Forecasting")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.show()
+
+
+time_series_forcast()
 def detrend_series(x, y):
     # Implement detrending here (e.g., linear detrending)
     return y - np.polyval(np.polyfit(x.astype(int), y, 1), x.astype(int))
-
-
 # Function for piecewise approximation (linear regression)
 def piecewise_linear_approximation(x, y, segment_length):
     """Divide data into segments and apply linear regression for each segment."""
@@ -47,118 +83,80 @@ def piecewise_linear_approximation(x, y, segment_length):
 
     return linear_segments_x, linear_segments_y
 
-# Load data
-df1 = pd.read_csv("smard20.csv", delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
-df2 = pd.read_csv("smard23.csv", delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+def linear_approximations(file_1="smard20.csv",file_2="smard23.csv", seg_size=200):
+    df1 = pd.read_csv(file_1, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+    df2 = pd.read_csv(file_2, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
 
-# Rename columns
-df1.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_1"}, inplace=True)
-df2.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_2"}, inplace=True)
+    # Rename columns
+    df1.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_1"}, inplace=True)
+    df2.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_2"}, inplace=True)
 
-# Drop missing values
-df1 = df1.dropna(subset=["DE_Price_1"])
-df2 = df2.dropna(subset=["DE_Price_2"])
+    # Drop missing values
+    df1 = df1.dropna(subset=["DE_Price_1"])
+    df2 = df2.dropna(subset=["DE_Price_2"])
 
-# Adjust start date to the same reference year
-df1["Start date"] = df1["Start date"].apply(lambda x: x.replace(year=2000))
-df2["Start date"] = df2["Start date"].apply(lambda x: x.replace(year=2000))
+    # Adjust start date to the same reference year
+    df1["Start date"] = df1["Start date"].apply(lambda x: x.replace(year=2000))
+    df2["Start date"] = df2["Start date"].apply(lambda x: x.replace(year=2000))
 
-# Apply a moving average
-window_size = 24*4*7
-df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
-df2["DE_Price_2"] = df2["DE_Price_2"].rolling(window=window_size, min_periods=1).mean()
+    # Apply a moving average
+    window_size = 24*4*7
+    df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+    df2["DE_Price_2"] = df2["DE_Price_2"].rolling(window=window_size, min_periods=1).mean()
 
-# Standardize the data
-"""df1["DE_Price_1"] = df1["DE_Price_1"] - df1["DE_Price_1"].mean()
-df2["DE_Price_2"] = df2["DE_Price_2"] - df2["DE_Price_2"].mean()
+    # Standardize the data
+    """df1["DE_Price_1"] = df1["DE_Price_1"] - df1["DE_Price_1"].mean()
+    df2["DE_Price_2"] = df2["DE_Price_2"] - df2["DE_Price_2"].mean()
+    
+    df1["DE_Price_1"] = df1["DE_Price_1"]/df1["DE_Price_1"].std()
+    df2["DE_Price_2"] = df2["DE_Price_2"]/df2["DE_Price_2"].std()
+    
+    # Detrend the data
+    df1["DE_Price_1"] = detrend_series(df1["Start date"], df1["DE_Price_1"])
+    df2["DE_Price_2"] = detrend_series(df2["Start date"], df2["DE_Price_2"])"""
 
-df1["DE_Price_1"] = df1["DE_Price_1"]/df1["DE_Price_1"].std()
-df2["DE_Price_2"] = df2["DE_Price_2"]/df2["DE_Price_2"].std()
+    # Merge the data
+    df_merged = df1.merge(df2, on="Start date", how="inner")
 
-# Detrend the data
-df1["DE_Price_1"] = detrend_series(df1["Start date"], df1["DE_Price_1"])
-df2["DE_Price_2"] = detrend_series(df2["Start date"], df2["DE_Price_2"])"""
+    # Convert dates to numeric values for linear regression
+    dates_as_numeric = mdates.date2num(df_merged["Start date"])
 
-# Merge the data
-df_merged = df1.merge(df2, on="Start date", how="inner")
+    # Apply piecewise linear approximation
+    segment_length = seg_size  # Choose an appropriate segment length
+    linear_segments_x_1, linear_segments_y_1 = piecewise_linear_approximation(dates_as_numeric,
+                                                                              df_merged["DE_Price_1"].values,
+                                                                              segment_length)
+    linear_segments_x_2, linear_segments_y_2 = piecewise_linear_approximation(dates_as_numeric,
+                                                                              df_merged["DE_Price_2"].values,
+                                                                              segment_length)
 
-# Convert dates to numeric values for linear regression
-dates_as_numeric = mdates.date2num(df_merged["Start date"])
+    # Plot original data and linear piecewise approximations
+    plt.figure(figsize=(12, 6))
+    #plt.plot(df1["Start date"], df1["DE_Price_1"], label="2020 Price of Electricity (€/MWh)", color="blue", linewidth=1)
+    #plt.plot(df2["Start date"], df2["DE_Price_2"], label="2023 Price of Electricity (€/MWh)", color="red", linewidth=1)
 
-# Apply piecewise linear approximation
-segment_length = 500  # Choose an appropriate segment length
-linear_segments_x_1, linear_segments_y_1 = piecewise_linear_approximation(dates_as_numeric,
-                                                                          df_merged["DE_Price_1"].values,
-                                                                          segment_length)
-linear_segments_x_2, linear_segments_y_2 = piecewise_linear_approximation(dates_as_numeric,
-                                                                          df_merged["DE_Price_2"].values,
-                                                                          segment_length)
+    # Plot each piecewise linear segment
+    for seg_x_1, seg_y_1, seg_x_2, seg_y_2 in zip(linear_segments_x_1, linear_segments_y_1, linear_segments_x_2,
+                                                  linear_segments_y_2):
+        # Convert numeric dates back to datetime for proper plotting
+        seg_x_1_dates = mdates.num2date(seg_x_1)
+        seg_x_2_dates = mdates.num2date(seg_x_2)
 
-# Plot original data and linear piecewise approximations
-plt.figure(figsize=(12, 6))
-#plt.plot(df1["Start date"], df1["DE_Price_1"], label="2020 Price of Electricity (€/MWh)", color="blue", linewidth=1)
-#plt.plot(df2["Start date"], df2["DE_Price_2"], label="2023 Price of Electricity (€/MWh)", color="red", linewidth=1)
+        # Plot the linear regression lines for each segment
+        plt.plot(seg_x_1_dates, seg_y_1, color="blue", alpha=1, linewidth=1)
+        plt.plot(seg_x_2_dates, seg_y_2, color="red", alpha=1, linewidth=1)
 
-# Plot each piecewise linear segment
-for seg_x_1, seg_y_1, seg_x_2, seg_y_2 in zip(linear_segments_x_1, linear_segments_y_1, linear_segments_x_2,
-                                              linear_segments_y_2):
-    # Convert numeric dates back to datetime for proper plotting
-    seg_x_1_dates = mdates.num2date(seg_x_1)
-    seg_x_2_dates = mdates.num2date(seg_x_2)
+    # Formatting the plot
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%m"))  # Show only Month
+    plt.xlabel("Time")
+    plt.ylabel("Price (€/MWh)")
+    plt.ylim(-200, 200)
+    plt.title("Electricity Price in Germany (Piecewise Linear Approximation)")
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.show()
 
-    # Plot the linear regression lines for each segment
-    plt.plot(seg_x_1_dates, seg_y_1, color="blue", alpha=1, linewidth=1)
-    plt.plot(seg_x_2_dates, seg_y_2, color="red", alpha=1, linewidth=1)
-
-# Formatting the plot
-plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%m"))  # Show only Month
-plt.xlabel("Time")
-plt.ylabel("Price (€/MWh)")
-plt.ylim(-200, 200)
-plt.title("Electricity Price in Germany (Piecewise Linear Approximation)")
-plt.legend()
-plt.grid(True)
-plt.xticks(rotation=45)
-plt.show()
-
-
-# Define a function for piecewise approximation
-def detrend_series(x, y):
-    # Implement detrending here (e.g., linear detrending)
-    return y - np.polyval(np.polyfit(x.astype(int), y, 1), x.astype(int))
-
-# Function for piecewise approximation
-def piecewise_approximation(data, segment_length):
-    """Divide data into segments and compute DTW on each segment."""
-    segments = [data[i:i + segment_length] for i in range(0, len(data), segment_length)]
-    distances = []
-    paths = []
-
-    for i in range(len(segments) - 1):
-        segment_1 = [(x,) for x in segments[i]]
-        segment_2 = [(x,) for x in segments[i + 1]]
-        distance, path = fastdtw(segment_1, segment_2, dist=euclidean)
-        distances.append(distance)
-        paths.append(path)
-
-    return distances, paths
-
-# Function to remove linear trend
-def detrend_series(dates, prices):
-    x = np.arange(len(dates))  # Convert dates to numerical indices
-    y = prices.values  # Convert prices to numpy array
-
-    # Fit linear regression
-    slope, intercept, _, _, _ = linregress(x, y)
-
-    # Compute trend line
-    trend = slope * x + intercept
-
-    # Remove trend from the data
-    detrended_prices = y - trend
-
-    return detrended_prices
-# Load dataset
 def time_series(file_path1 = "smard20.csv", file_path2 = "smard23.csv"):
 
     df1 = pd.read_csv(file_path1, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
