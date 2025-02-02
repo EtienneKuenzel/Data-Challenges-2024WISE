@@ -16,52 +16,115 @@ from imblearn.over_sampling import SMOTE
 from imblearn.under_sampling import RandomUnderSampler
 from fastdtw import fastdtw
 from scipy.spatial.distance import euclidean
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
+import imageio
 from sklearn.linear_model import LinearRegression
-import numpy as np
+from sklearn.model_selection import train_test_split
 import pandas as pd
-# Forecasting using ARIMA
-from statsmodels.tsa.arima.model import ARIMA
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from sklearn.linear_model import LinearRegression
 import numpy as np
-import pandas as pd
-from datetime import timedelta
-from statsmodels.tsa.statespace.sarimax import SARIMAX
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 
 
-def time_series_forcast(file_path1 = "smard20.csv"):
-    df1 = pd.read_csv(file_path1, delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
-    df1.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price_1"}, inplace=True)
-    df1 = df1.dropna(subset=["DE_Price_1"])
-    window_size = 24 * 4 * 7
-    df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+def LSTm():
+    df = pd.read_csv("smard18-24.csv", delimiter=",", parse_dates=["Start date"], decimal=".", thousands=",")
+    df.rename(columns={"Germany/Luxembourg [€/MWh] Calculated resolutions": "DE_Price"}, inplace=True)
+    df = df.dropna(subset=["DE_Price"])
 
-    df1["DE_Price_1"] = df1["DE_Price_1"].rolling(window=window_size, min_periods=1).mean()
+    # Apply rolling mean smoothing
+    window_size = 24 * 4 * 7  # 1 week rolling average
+    df["DE_Price"] = df["DE_Price"].rolling(window=window_size, min_periods=1).mean()
 
-    # Simple Forecast: Shifted past values as future predictions
-    forecast_horizon = 24 * 4*30  # Predict one day ahead
-    df1["Forecast"] = df1["DE_Price_1"].shift(forecast_horizon)
+    # Normalize Data
+    scaler = MinMaxScaler(feature_range=(-1, 1))
+    df["DE_Price"] = scaler.fit_transform(df["DE_Price"].values.reshape(-1, 1))
 
-    # Plot actual vs forecast
-    plt.figure(figsize=(12, 6))
-    plt.plot(df1["Start date"], df1["DE_Price_1"], label="Actual Price", color="blue", linewidth=1)
-    plt.plot(df1["Start date"], df1["Forecast"], label="Forecasted Price", color="red", linestyle="dashed", linewidth=1)
-
-    plt.xlabel("Time")
-    plt.ylabel("Price (€/MWh)")
-    plt.ylim(-200, 200)
-    plt.title("Electricity Price in Germany with Forecasting")
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.show()
+    # Split Data
+    train_size = int(len(df) * 0.75)
+    train_data = df["DE_Price"].values[:train_size]
+    test_data = df["DE_Price"].values[train_size:]
 
 
-time_series_forcast()
+    # Convert to sequences
+    def create_sequences(data, seq_length=24):
+        sequences, labels = [], []
+        for i in range(len(data) - seq_length):
+            sequences.append(data[i:i + seq_length])
+            labels.append(data[i + seq_length])
+        return torch.tensor(sequences, dtype=torch.float32), torch.tensor(labels, dtype=torch.float32)
+
+
+    seq_length = 24
+    X_train, y_train = create_sequences(train_data, seq_length)
+    X_test, y_test = create_sequences(test_data, seq_length)
+
+
+    # Define LSTM Model
+    class LSTMModel(nn.Module):
+        def __init__(self):
+            super(LSTMModel, self).__init__()
+            self.lstm = nn.LSTM(input_size=1, hidden_size=50, num_layers=2, batch_first=True)
+            self.fc = nn.Linear(50, 1)
+        def forward(self, x):
+            x, _ = self.lstm(x.unsqueeze(-1))
+            x = self.fc(x[:, -1])
+            return x
+
+
+    # Training
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = LSTMModel().to(device)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    X_train, y_train = X_train.to(device), y_train.to(device)
+    X_test, y_test = X_test.to(device), y_test.to(device)
+
+    epochs = 50
+    filenames = []
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        output = model(X_train)
+        loss = criterion(output.squeeze(), y_train)
+        loss.backward()
+        optimizer.step()
+        print(f"Epoch {epoch + 1}, Loss: {loss.item():.4f}")
+
+        # Generate Predictions at Each Epoch
+        model.eval()
+        with torch.no_grad():
+            predictions = model(X_test).cpu().numpy()
+        predictions = scaler.inverse_transform(predictions)
+        y_test_np = scaler.inverse_transform(y_test.cpu().numpy().reshape(-1, 1))
+
+        # Plot results
+        plt.figure(figsize=(12, 6))
+        plt.plot(df["Start date"].values[train_size + seq_length:], y_test_np, label="Actual Price", color="blue")
+        plt.plot(df["Start date"].values[train_size + seq_length:], predictions, label="Predicted Price", color="red")
+        plt.xlabel("Time")
+        plt.ylabel("Price (€/MWh)")
+        plt.title(f"Epoch {epoch + 1}: Electricity Price Prediction")
+        plt.legend()
+        plt.grid(True)
+
+        # Save frame
+        filename = f"frame_{epoch + 1}.png"
+        plt.savefig(filename)
+        filenames.append(filename)
+        plt.close()
+
+    # Create GIF
+    gif_filename = "forecast_evolution.gif"
+    with imageio.get_writer(gif_filename, mode='I', duration=0.5) as writer:
+        for filename in filenames:
+            image = imageio.imread(filename)
+            writer.append_data(image)
+
+    print(f"GIF saved as {gif_filename}")
+
 def detrend_series(x, y):
     # Implement detrending here (e.g., linear detrending)
     return y - np.polyval(np.polyfit(x.astype(int), y, 1), x.astype(int))
