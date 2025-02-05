@@ -8,7 +8,6 @@ This repository contains the code and resources for the Data Challenge Course 24
 ## Example Images ##
 ### Correlations ###
 <p float="left">
-  <img src="images/correlation/Correlation_Generation.png" width="49%" />
   <img src="images/correlation/Heatmap_Consumption-TimeofDay.png" width="49%" />
 </p>
 
